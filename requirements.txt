@@ -4,3 +4,6 @@ pytz
 requests
 fastapi
 uvicorn
+ccxt
+streamlit
+pandas
