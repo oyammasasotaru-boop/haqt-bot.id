@@ -1,43 +1,59 @@
-from fastapi import FastAPI
-import uvicorn
+import time
+import pandas as pd
+import yfinance as yf
+from datetime import datetime
 
-app = FastAPI()
+# --- SETTING STRATEGI ---
+DANA_PER_LAYER = 15.0
+saldo_virtual = 50.0
+posisi_aktif = []
 
-@app.get("/")
-def read_root():
-    return {"message": "HAQT Bot is running!"}
+def cek_sinyal(df_m5, df_m15, df_h4):
+    """Fungsi otak strategi kamu"""
+    harga_live = float(df_m5['Close'].iloc[-1])
+    candle_a = df_m5.iloc[-2]
+    
+    # Logika Rejection (Hybrid Weapon V3)
+    body_size = abs(float(candle_a['Close']) - float(candle_a['Open']))
+    lower_shadow = min(float(candle_a['Open']), float(candle_a['Close'])) - float(candle_a['Low'])
+    is_rejection = lower_shadow >= (1.0 * body_size)
+    
+    # Contoh Sinyal (Sederhanakan logika fibo/bb kamu di sini)
+    # Jika sinyal valid, return "BUY"
+    if is_rejection:
+        return "BUY"
+    return None
+
+def main():
+    global saldo_virtual
+    print("🚀 BOT HYBRID V3: LIVE MODE STARTED")
+    
+    while True:
+        try:
+            # 1. Fetch data singkat (5 menit terakhir)
+            df = yf.download("BTC-USD", period="1d", interval="5m", progress=False)
+            
+            # 2. Cek Sinyal
+            sinyal = cek_sinyal(df, df, df) # Sesuaikan data frame-mu
+            
+            # 3. Eksekusi
+            if sinyal == "BUY" and len(posisi_aktif) < 2:
+                jumlah_koin = DANA_PER_LAYER / float(df['Close'].iloc[-1])
+                posisi_aktif.append({'harga': float(df['Close'].iloc[-1]), 'volume': jumlah_koin})
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ ENTRY: ${df['Close'].iloc[-1]:.2f}")
+            
+            # 4. Cek Profit (Exit)
+            for p in posisi_aktif[:]:
+                if float(df['Close'].iloc[-1]) > p['harga'] * 1.005: # Take Profit 0.5%
+                    profit = (float(df['Close'].iloc[-1]) - p['harga']) * p['volume']
+                    saldo_virtual += (p['volume'] * float(df['Close'].iloc[-1]))
+                    posisi_aktif.remove(p)
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] 💰 EXIT PROFIT: ${profit:.4f} | Saldo: ${saldo_virtual:.2f}")
+
+        except Exception as e:
+            print(f"⚠️ Error: {e}")
+        
+        time.sleep(300) # Cek tiap 5 menit
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-# 1. Tentukan modal awal virtual kamu
-virtual_balance_usdt = 1000.0  # Misal modal awal $1000
-virtual_asset_amount = 0.0      # Jumlah koin yang dimiliki (awal 0)
-
-def simulate_trade(side, price, quantity):
-    global virtual_balance_usdt, virtual_asset_amount
-    
-    if side == "BUY":
-        cost = price * quantity
-        if virtual_balance_usdt >= cost:
-            virtual_balance_usdt -= cost
-            virtual_asset_amount += quantity
-            print(f"--- SIMULASI BUY: Beli {quantity} di harga {price} ---")
-            print(f"Saldo sekarang: {virtual_balance_usdt} USDT")
-        else:
-            print("Saldo tidak cukup untuk beli!")
-
-    elif side == "SELL":
-        if virtual_asset_amount >= quantity:
-            revenue = price * quantity
-            virtual_balance_usdt += revenue
-            virtual_asset_amount -= quantity
-            print(f"--- SIMULASI SELL: Jual {quantity} di harga {price} ---")
-            print(f"Saldo sekarang: {virtual_balance_usdt} USDT")
-        else:
-            print("Tidak punya aset untuk dijual!")
-          # --- Tes simulasi ---
-# Kita coba panggil fungsi buat beli 0.1 BTC di harga $60000
-simulate_trade("BUY", 60000.0, 0.1) 
-
-# Kita coba panggil fungsi buat jual 0.05 BTC di harga $65000
-simulate_trade("SELL", 65000.0, 0.05)  
+    main()
